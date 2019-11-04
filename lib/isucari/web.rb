@@ -222,21 +222,43 @@ module Isucari
       root_category = get_category_by_id(root_category_id)
       halt_with_error 404, 'category not found' if root_category.nil?
 
+      # オンメモリ
       category_ids = db.xquery('SELECT id FROM `categories` WHERE parent_id = ?', root_category['id']).map { |row| row['id'] }
 
       item_id = params['item_id'].to_i
       created_at = params['created_at'].to_i
 
       items = if item_id > 0 && created_at > 0
-        db.xquery("SELECT * FROM `items` WHERE `status` IN (?, ?) AND category_id IN (?) AND (`created_at` < ?  OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT #{ITEMS_PER_PAGE + 1}", ITEM_STATUS_ON_SALE, ITEM_STATUS_SOLD_OUT, category_ids, Time.at(created_at), Time.at(created_at), item_id)
+        db.xquery("SELECT `items`.*, `users`.`account_name`, `users`.`num_sell_items` FROM `items`
+          INNER JOIN `users` ON `users`.`id` = `items`.`seller_id`
+          WHERE `status` IN (?, ?)
+          AND category_id IN (?)
+          AND (`items`.`created_at` < ? OR (`items`.`created_at` <= ? AND `items`.`id` < ?))
+          ORDER BY `items`.`created_at` DESC, `items`.`id` DESC LIMIT #{ITEMS_PER_PAGE + 1}",
+          ITEM_STATUS_ON_SALE, ITEM_STATUS_SOLD_OUT, category_ids, Time.at(created_at), Time.at(created_at), item_id)
       else
-        db.xquery("SELECT * FROM `items` WHERE `status` IN (?,?) AND category_id IN (?) ORDER BY `created_at` DESC, `id` DESC LIMIT #{ITEMS_PER_PAGE + 1}", ITEM_STATUS_ON_SALE, ITEM_STATUS_SOLD_OUT, category_ids)
+        db.xquery("SELECT `items`.*, `users`.`account_name`, `users`.`num_sell_items` FROM `items`
+          INNER JOIN `users` ON `users`.`id` = `items`.`seller_id`
+          WHERE `status` IN (?, ?)
+          AND category_id IN (?)
+          ORDER BY `items`.`created_at` DESC, `items`.`id` DESC LIMIT #{ITEMS_PER_PAGE + 1}",
+          ITEM_STATUS_ON_SALE, ITEM_STATUS_SOLD_OUT, category_ids)
       end
 
       item_simples = items.map do |item|
-        seller = get_user_simple_by_id(item['seller_id'])
+        seller = {
+          id: item['seller_id'],
+          account_name: item['account_name'],
+          num_sell_items: item['num_sell_items']
+        }
         halt_with_error 404, 'seller not found' if seller.nil?
 
+        # {
+        #   'id' => category['id'],
+        #   'parent_id' => category['parent_id'],
+        #   'category_name' => category['category_name'],
+        #   'parent_category_name' => parent_category_name
+        # }
         category = get_category_by_id(item['category_id'])
         halt_with_error 404, 'category not found' if category.nil?
 
@@ -1195,7 +1217,7 @@ module Isucari
     # getReports
     get '/reports.json' do
       transaction_evidences = db.xquery('SELECT * FROM `transaction_evidences` WHERE `id` > 15007')
-      
+
       response = transaction_evidences.map do |transaction_evidence|
         {
           'id' => transaction_evidence['id'],

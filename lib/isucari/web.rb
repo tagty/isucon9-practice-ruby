@@ -229,16 +229,20 @@ module Isucari
       created_at = params['created_at'].to_i
 
       items = if item_id > 0 && created_at > 0
-        db.xquery("SELECT `items`.*, `users`.`account_name`, `users`.`num_sell_items` FROM `items`
+        db.xquery("SELECT `items`.*, `users`.`account_name`, `users`.`num_sell_items`, `categories`.`parent_id`, `categories`.`category_name`
+          FROM `items`
           INNER JOIN `users` ON `users`.`id` = `items`.`seller_id`
+          INNER JOIN `categories` ON `categories`.`id` = `items`.`category_id`
           WHERE `status` IN (?, ?)
           AND category_id IN (?)
           AND (`items`.`created_at` < ? OR (`items`.`created_at` <= ? AND `items`.`id` < ?))
           ORDER BY `items`.`created_at` DESC, `items`.`id` DESC LIMIT #{ITEMS_PER_PAGE + 1}",
           ITEM_STATUS_ON_SALE, ITEM_STATUS_SOLD_OUT, category_ids, Time.at(created_at), Time.at(created_at), item_id)
       else
-        db.xquery("SELECT `items`.*, `users`.`account_name`, `users`.`num_sell_items` FROM `items`
+        db.xquery("SELECT `items`.*, `users`.`account_name`, `users`.`num_sell_items`, `categories`.`parent_id`, `categories`.`category_name`
+          FROM `items`
           INNER JOIN `users` ON `users`.`id` = `items`.`seller_id`
+          INNER JOIN `categories` ON `categories`.`id` = `items`.`category_id`
           WHERE `status` IN (?, ?)
           AND category_id IN (?)
           ORDER BY `items`.`created_at` DESC, `items`.`id` DESC LIMIT #{ITEMS_PER_PAGE + 1}",
@@ -253,13 +257,19 @@ module Isucari
         }
         halt_with_error 404, 'seller not found' if seller.nil?
 
-        # {
-        #   'id' => category['id'],
-        #   'parent_id' => category['parent_id'],
-        #   'category_name' => category['category_name'],
-        #   'parent_category_name' => parent_category_name
-        # }
-        category = get_category_by_id(item['category_id'])
+        # LEFT OUTER JOINでSQLに入れる
+        parent_category_name = if item['parent_id'] != 0
+          parent_category = get_category_by_id(item['parent_id'])
+          return if parent_category.nil?
+          parent_category['category_name']
+        end
+
+        category = {
+          'id' => item['category_id'],
+          'parent_id' => item['parent_id'],
+          'category_name' => item['category_name'],
+          'parent_category_name' => parent_category_name
+        }
         halt_with_error 404, 'category not found' if category.nil?
 
         {
